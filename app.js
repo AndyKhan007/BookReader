@@ -12,12 +12,11 @@ let PLAY_QUEUE = [];
 let CURRENT_IDX = 0;
 let isPlaying = false;
 let audioCtx = null;
-let currentSource = null; // Untuk menghentikan audio yang sedang berjalan
+let currentSource = null;
 
 // =================================================================================
 // 1. INISIALISASI WORKER TTS
 // =================================================================================
-// Muat Worker sebagai module agar bisa menggunakan import
 const ttsWorker = new Worker('tts.worker.js', { type: 'module' });
 
 ttsWorker.onmessage = function (e) {
@@ -28,14 +27,13 @@ ttsWorker.onmessage = function (e) {
         playAudioBuffer(e.data.audio, e.data.sampleRate);
     } else if (e.data.type === 'error') {
         console.error("❌ Error TTS:", e.data.error);
-        alert("Gagal memproses suara: " + e.data.error);
+        alert("Gagal memproses suara: " + (e.data.error || "Tidak diketahui"));
         isPlaying = false;
         document.getElementById('playBtn').innerText = "▶ Play";
     }
 };
 
-// Tentukan path folder model Anda di GitHub Pages
-// Pastikan trailing slash (/) di akhir
+// Path Model (Sudah disesuaikan dengan folder models Anda)
 const MODEL_BASE_URL = './models/vits-piper-id_ID-news_tts-medium-fp16/';
 
 // Kirim perintah inisialisasi ke Worker
@@ -44,11 +42,10 @@ ttsWorker.postMessage({
     modelBaseUrl: MODEL_BASE_URL
 });
 
-// Nonaktifkan tombol play sampai model siap
 document.getElementById('playBtn').disabled = true;
 
 // =================================================================================
-// 2. FUNGSI FETCH API (CORS Workaround)
+// 2. FUNGSI FETCH API
 // =================================================================================
 async function apiCall(action, payload = {}) {
     payload.action = action;
@@ -56,7 +53,6 @@ async function apiCall(action, payload = {}) {
     
     const res = await fetch(GAS_API_URL, {
         method: 'POST',
-        // Gunakan text/plain untuk menghindari preflight CORS
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
     });
@@ -78,7 +74,7 @@ async function doLogin() {
         document.getElementById("readerView").classList.add("active");
         loadLibrary();
     } else {
-        alert("Login Gagal: " + res.error);
+        alert("Login Gagal: " + (res.error || "Username/Password salah"));
     }
 }
 
@@ -89,10 +85,11 @@ function doLogout() {
 
 async function loadLibrary() {
     const res = await apiCall("getBooks");
-    if (!res.ok) return alert(res.error);
+    if (!res.ok) return alert("Gagal load books: " + (res.error || "Unknown"));
     
     let html = "";
-    res.forEach(b => {
+    // Data sekarang diambil dari res.data
+    res.data.forEach(b => {
         html += `<div class="reader-card" onclick="openBook('${b.book_id}', '${b.book_title}')">
                     <h3>${b.book_title}</h3>
                  </div>`;
@@ -104,10 +101,10 @@ async function loadLibrary() {
 async function openBook(bookId, title) {
     CURRENT_BOOK = bookId;
     const res = await apiCall("getChapters", { bookId: bookId });
-    if (!res.ok) return alert(res.error);
+    if (!res.ok) return alert("Gagal load chapters: " + (res.error || "Unknown"));
     
     let html = "";
-    res.forEach(c => {
+    res.data.forEach(c => {
         html += `<div class="reader-card" onclick="openChapter(${c.chapter})">
                     <h3>Bab ${c.chapter} - ${c.chapter_title}</h3>
                  </div>`;
@@ -119,19 +116,17 @@ async function openBook(bookId, title) {
 async function openChapter(chapter) {
     CURRENT_CHAPTER = chapter;
     const res = await apiCall("getContent", { bookId: CURRENT_BOOK, chapter: chapter });
-    if (!res.ok) return alert(res.error);
+    if (!res.ok) return alert("Gagal load content: " + (res.error || "Unknown"));
     
     PLAY_QUEUE = [];
     CURRENT_IDX = 0;
     let html = "";
     
-    res.forEach(row => {
-        // Pecah teks menjadi kalimat untuk antrean TTS
+    res.data.forEach(row => {
         const sentences = row.text.split(/(?<=[.!?])\s+/);
         html += `<div class="reader-card">`;
         sentences.forEach(s => {
             html += `<span>${s} </span>`;
-            // Simpan metadata gender dan bahasa untuk referensi
             PLAY_QUEUE.push({ text: s, gender: row.gender, lang: row.lang_tag });
         });
         html += `</div>`;
@@ -146,7 +141,6 @@ async function openChapter(chapter) {
 // =================================================================================
 function togglePlay() {
     if (isPlaying) {
-        // Pause
         isPlaying = false;
         document.getElementById("playBtn").innerText = "▶ Play";
         if (currentSource) {
@@ -154,7 +148,6 @@ function togglePlay() {
             currentSource = null;
         }
     } else {
-        // Play
         if (PLAY_QUEUE.length === 0) {
             alert("Tidak ada konten untuk dibaca.");
             return;
@@ -175,7 +168,6 @@ function speakNext() {
     const chunk = PLAY_QUEUE[CURRENT_IDX];
     const speed = parseFloat(document.getElementById("speedSlider").value);
     
-    // Kirim teks ke Worker untuk disintesis
     ttsWorker.postMessage({
         type: 'generate',
         text: chunk.text,
@@ -188,22 +180,16 @@ function playAudioBuffer(float32Data, sampleRate) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
     
-    // Buat buffer audio
     const buffer = audioCtx.createBuffer(1, float32Data.length, sampleRate);
     buffer.copyToChannel(float32Data, 0);
     
-    // Siapkan sumber audio
     if (currentSource) {
         currentSource.stop();
     }
     currentSource = audioCtx.createBufferSource();
     currentSource.buffer = buffer;
     
-    // Terapkan Pitch (Mengubah playbackRate akan mengubah pitch dan speed)
     const pitch = parseFloat(document.getElementById("pitchSlider").value);
-    // Kita bagi dengan speed karena source.playbackRate mempercepat/memperlambat sekaligus
-    // Untuk memisahkan pitch dan speed, kita perlu trik khusus, namun untuk sederhananya:
-    // kita atur playbackRate = pitch, dan speed dari TTS diatur oleh parameter di Worker.
     currentSource.playbackRate.value = pitch; 
     
     currentSource.connect(audioCtx.destination);
