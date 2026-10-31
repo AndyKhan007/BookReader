@@ -1,60 +1,70 @@
 // =================================================================================
-// tts.worker.js — Worker untuk Sherpa-onnx TTS (Piper)
+// tts.worker.js — Menggunakan Mesin Resmi Sherpa-onnx WASM (Classic Worker)
 // =================================================================================
 
-import { RunAnywhere } from 'https://esm.sh/@runanywhere/web@latest';
-import { ONNX, TTS } from 'https://esm.sh/@runanywhere/web-onnx@latest';
+var Module = {
+    onRuntimeInitialized: function() {
+        console.log("✅ [Worker] WASM Runtime Siap!");
+        checkReady();
+    }
+};
 
+// Muat script utama Sherpa-onnx
+importScripts('./sherpa-onnx-wasm-main-tts.js');
+
+let ttsInstance = null;
 let isReady = false;
+let configData = null;
 
-self.onmessage = async function (e) {
+function checkReady() {
+    if (configData && typeof Module.createOfflineTts === 'function' && !ttsInstance) {
+        initTTS();
+    }
+}
+
+async function initTTS() {
+    try {
+        console.log("⚙️ [Worker] Menginisialisasi Model TTS...");
+        // Ambil konfigurasi
+        const response = await fetch('./tts_config.json');
+        const config = await response.json();
+        
+        // Buat instance TTS
+        ttsInstance = Module.createOfflineTts(config);
+        isReady = true;
+        
+        self.postMessage({ type: 'ready' });
+        console.log("✅ [Worker] TTS Model (Piper) Siap Digunakan!");
+    } catch (err) {
+        console.error("❌ [Worker] Gagal inisialisasi:", err);
+        self.postMessage({ type: 'error', error: 'Gagal load model: ' + err.message });
+    }
+}
+
+self.onmessage = function (e) {
     if (e.data.type === 'init') {
-        try {
-            // 1. Inisialisasi Core SDK RunAnywhere
-            await RunAnywhere.initialize({ environment: 'production' });
-            
-            // 2. Daftarkan backend ONNX (WASM)
-            await ONNX.register();
-
-            // 3. Muat model suara (Voice) dari URL GitHub Pages Anda
-            // Pastikan path ini sesuai dengan struktur folder di repo Anda.
-            // e.data.modelBaseUrl harus diakhiri dengan '/'
-            await TTS.loadVoice({
-                voiceId: 'piper-id',
-                modelPath: e.data.modelBaseUrl + 'id_ID-news_tts-medium.onnx', // Atau model.fp16.onnx
-                tokensPath: e.data.modelBaseUrl + 'tokens.txt',
-                dataDir: e.data.modelBaseUrl + 'espeak-ng-data',
-            });
-
-            isReady = true;
-            self.postMessage({ type: 'ready' });
-            console.log('[Worker] TTS Model (Piper) Siap!');
-        } catch (err) {
-            console.error('[Worker] Gagal inisialisasi:', err);
-            self.postMessage({ type: 'error', error: 'Gagal memuat model: ' + err.message });
-        }
+        configData = e.data;
+        checkReady(); // Jika WASM sudah siap duluan
     } 
     else if (e.data.type === 'generate') {
-        if (!isReady) {
-            self.postMessage({ type: 'error', error: 'TTS belum siap' });
+        if (!isReady || !ttsInstance) {
+            self.postMessage({ type: 'error', error: 'TTS belum siap, mohon tunggu.' });
             return;
         }
         
         try {
-            // 4. Sintesis teks menjadi audio
-            // Catatan: Parameter 'speed' mungkin didukung, sesuaikan dengan dokumentasi RunAnywhere
-            const speech = await TTS.synthesize(e.data.text, {
-                // speed: e.data.speed || 1.0, // Uncomment jika API mendukung
+            const audio = ttsInstance.generate({
+                text: e.data.text,
+                sid: 0, // Speaker ID
+                speed: e.data.speed || 1.0
             });
 
-            // 5. Kirim hasil audio (Float32Array) dan sample rate ke main thread
             self.postMessage({
                 type: 'result',
-                audio: speech.audioData, // Float32Array
-                sampleRate: speech.sampleRate
+                audio: audio.samples,
+                sampleRate: audio.sampleRate
             });
         } catch (err) {
-            console.error('[Worker] Gagal sintesis:', err);
             self.postMessage({ type: 'error', error: err.message });
         }
     }
