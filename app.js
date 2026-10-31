@@ -1,5 +1,5 @@
 // =================================================================================
-// app.js — Logika Utama Frontend
+// app.js — Logika Utama Frontend (Dengan Fake Progress)
 // =================================================================================
 
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw9OuINRFF7myho9hwc66cCP2Z5xINDoSVEI123PKsQH817YjQslAW7yv1WmQ5RWg0q/exec"; 
@@ -15,6 +15,7 @@ let isPlaying = false;
 let audioCtx = null;
 let currentSource = null;
 let CURRENT_EDIT_SEQ = 0;
+let fakeProgressInterval = null;
 
 const ttsWorker = new Worker('tts.worker.js'); 
 const playBtn = document.getElementById('playBtn');
@@ -23,14 +24,24 @@ if (playBtn) playBtn.innerText = "⏳ Menyiapkan...";
 ttsWorker.onmessage = function (e) {
     if (e.data.type === 'progress') {
         if (e.data.phase === 'init') {
-            if (playBtn) playBtn.innerText = "⚙️ Memuat Model...";
-            console.log("[Worker] Menginisialisasi Model...");
+            // FASE INISIALISASI: Gunakan fake progress
+            let fakePercent = 90;
+            if (playBtn) playBtn.innerText = `⚙️ Memuat: ${fakePercent}%`;
+            
+            clearInterval(fakeProgressInterval);
+            fakeProgressInterval = setInterval(() => {
+                fakePercent += Math.floor(Math.random() * 2) + 1; // Naik 1-2% secara acak
+                if (fakePercent > 99) fakePercent = 99;
+                if (playBtn) playBtn.innerText = `⚙️ Memuat: ${fakePercent}%`;
+            }, 300);
         } else {
+            // FASE DOWNLOAD: Persentase asli
             const percent = Math.round((e.data.loaded / e.data.total) * 100);
-            if (playBtn) playBtn.innerText = `⏳ Unduh Model: ${percent}%`;
+            if (playBtn) playBtn.innerText = `⏳ Unduh: ${percent}%`;
         }
     } 
     else if (e.data.type === 'ready') {
+        clearInterval(fakeProgressInterval); // Hentikan fake progress
         console.log("✅ Mesin TTS Siap!");
         if (playBtn) {
             playBtn.disabled = false;
@@ -41,6 +52,7 @@ ttsWorker.onmessage = function (e) {
         playAudioBuffer(e.data.audio, e.data.sampleRate);
     } 
     else if (e.data.type === 'error') {
+        clearInterval(fakeProgressInterval);
         console.error("❌ Error TTS:", e.data.error);
         if (playBtn) {
             playBtn.innerText = "❌ Gagal";
@@ -50,8 +62,7 @@ ttsWorker.onmessage = function (e) {
     }
 };
 
-const MODEL_BASE_URL = './models/vits-piper-id_ID-news_tts-medium-fp16/';
-ttsWorker.postMessage({ type: 'init', modelBaseUrl: MODEL_BASE_URL });
+ttsWorker.postMessage({ type: 'init' });
 
 // ══ UTILITY & UI ══
 function showToast(msg) {
@@ -77,6 +88,9 @@ async function apiCall(action, payload = {}) {
     const res = await fetch(GAS_API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
     return await res.json();
 }
+
+// Sisa fungsi UI (doLogin, loadLibrary, openBook, openChapter, selectCard, togglePlay, speakNext, dll) sama persis dengan kode app.js sebelumnya.
+// (Tempelkan fungsi-fungsi tersebut di bawah ini)
 
 async function doLogin() {
     const u = document.getElementById("username").value;
@@ -109,9 +123,7 @@ async function loadLibrary() {
     if (!res.ok) return showToast("Gagal load buku: " + res.error);
     let html = "";
     res.data.forEach(b => {
-        html += `<div class="reader-card" onclick="openBook('${b.book_id}', '${b.book_title}')">
-                    <h3>${b.book_title}</h3>
-                 </div>`;
+        html += `<div class="reader-card" onclick="openBook('${b.book_id}', '${b.book_title}')"><h3>${b.book_title}</h3></div>`;
     });
     document.getElementById("contentArea").innerHTML = html;
 }
@@ -125,9 +137,7 @@ async function openBook(bookId, title) {
     CHAPTER_LIST = res.data;
     let html = "";
     res.data.forEach(c => {
-        html += `<div class="reader-card" onclick="openChapter(${c.chapter})">
-                    <h3>Bab ${c.chapter} - ${c.chapter_title}</h3>
-                 </div>`;
+        html += `<div class="reader-card" onclick="openChapter(${c.chapter})"><h3>Bab ${c.chapter} - ${c.chapter_title}</h3></div>`;
     });
     document.getElementById("contentArea").innerHTML = html;
 }
@@ -137,10 +147,8 @@ async function openChapter(chapter) {
     document.getElementById("headerTitle").innerText = `Bab ${chapter}`;
     document.getElementById("contentArea").innerHTML = '<div style="text-align:center;">Memuat cerita...</div>';
     document.getElementById("ttsBar").style.display = "flex";
-    
     if (isPlaying) stopTTS();
     PLAY_QUEUE = []; CURRENT_IDX = 0; CURRENT_SELECTED_SEQ = -1;
-    
     const res = await apiCall("getContent", { bookId: CURRENT_BOOK, chapter: chapter });
     if (!res.ok) return showToast("Gagal load cerita: " + res.error);
     
@@ -227,8 +235,7 @@ function playAudioBuffer(float32Data, sampleRate) {
     if (currentSource) currentSource.stop();
     currentSource = audioCtx.createBufferSource();
     currentSource.buffer = buffer;
-    const pitch = parseFloat(document.getElementById("pitchSlider").value);
-    currentSource.playbackRate.value = pitch; 
+    currentSource.playbackRate.value = parseFloat(document.getElementById("pitchSlider").value); 
     currentSource.connect(audioCtx.destination);
     currentSource.onended = () => { if (isPlaying) { CURRENT_IDX++; speakNext(); } };
     currentSource.start();
