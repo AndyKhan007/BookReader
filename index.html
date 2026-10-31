@@ -2,39 +2,132 @@
 <html lang="ms">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Book Reader API</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>📖 Book Reader</title>
     <link rel="stylesheet" href="style.css">
-    <!-- Service Worker untuk mengaktifkan SharedArrayBuffer di GitHub Pages -->
     <script src="coi-serviceworker.js"></script>
 </head>
 <body>
     <!-- UI Login -->
     <div id="loginView" class="view active">
         <div class="login-card">
-            <h2>📖 BOOK READER</h2>
-            <input type="text" id="username" placeholder="Username">
-            <input type="password" id="password" placeholder="Password">
-            <button onclick="doLogin()">Login</button>
+            <div class="login-brand">
+                <span class="login-brand-icon">📖</span>
+                <div class="login-brand-name">BOOK READER</div>
+                <div class="login-brand-sub">Baca cerita dengan suara</div>
+            </div>
+            <div class="login-divider"></div>
+            <input type="text" id="username" placeholder="Username" autocomplete="username">
+            <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+            <button id="loginBtn" onclick="doLogin()">🔐 MASUK</button>
+            <div id="loginError" class="login-error"></div>
         </div>
     </div>
 
     <!-- UI Reader -->
     <div id="readerView" class="view">
-        <header>
-            <button onclick="loadLibrary()">← Kembali</button>
-            <h3 id="headerTitle">Library</h3>
-            <button onclick="doLogout()">🚪</button>
+        <header class="reader-header">
+            <button id="backBtn" class="reader-back" onclick="loadLibrary()">←</button>
+            <div id="headerTitle" class="reader-header-title">📖 Library</div>
+            <button id="addBtn" class="reader-header-btn" onclick="openAddParagraphModal()" style="display:none;">➕</button>
         </header>
+
+        <div class="reader-topbar">
+            <select id="langSelector" onchange="setLanguage(this.value)">
+                <option value="ms">🇲🇾 Bahasa Melayu</option>
+                <option value="id">🇮🇩 Bahasa Indonesia</option>
+                <option value="en">🇬🇧 English</option>
+            </select>
+            <button onclick="doLogout()">🚪</button>
+        </div>
         
-        <main id="contentArea">
+        <main id="contentArea" class="reader-main">
             <!-- Konten dinamis dimuat di sini -->
         </main>
 
-        <div id="ttsBar">
-            <button id="playBtn" onclick="togglePlay()">▶ Play</button>
-            <input type="range" id="speedSlider" min="0.5" max="2" step="0.1" value="1">
-            <input type="range" id="pitchSlider" min="0.5" max="2" step="0.1" value="1">
+        <!-- TTS Bar -->
+        <div id="ttsBar" class="reader-tts-bar">
+            <button id="prevBtn" class="reader-tts-btn" onclick="navigateParagraph('prev')">⏮</button>
+            <button id="playBtn" class="reader-tts-btn reader-tts-play" onclick="togglePlay()" disabled>▶ Play</button>
+            <button id="nextBtn" class="reader-tts-btn" onclick="navigateParagraph('next')">⏭</button>
+            <button id="stopBtn" class="reader-tts-btn" onclick="stopTTS()">⏹</button>
+            
+            <div class="reader-tts-controls">
+                <div class="reader-tts-speed">
+                    <span>Spd</span>
+                    <input type="range" id="speedSlider" min="0.5" max="2" step="0.1" value="1" oninput="updateSpeedLabel()">
+                    <span id="speedLabel">1.0×</span>
+                </div>
+                <div class="reader-tts-speed">
+                    <span>Pit</span>
+                    <input type="range" id="pitchSlider" min="0.5" max="2" step="0.1" value="1" oninput="updatePitchLabel()">
+                    <span id="pitchLabel">1.0×</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Edit Tag -->
+    <div id="editTagOverlay" class="audit-modal-overlay">
+        <div class="audit-modal">
+            <div class="audit-modal-header">
+                <div class="audit-modal-title">⚙️ Edit Paragraf</div>
+                <button class="audit-modal-close" onclick="closeModal('editTagOverlay')">✕</button>
+            </div>
+            <div class="audit-modal-body">
+                <div class="reader-voice-row"><label>Peran</label><select id="editWhoTag"><option value="NARRATOR">Narator</option><option value="AKTOR">Aktor</option></select></div>
+                <div class="reader-voice-row"><label>Gender</label><select id="editGender"><option value="FEMALE">Wanita</option><option value="MALE">Pria</option><option value="CHILD">Anak-anak</option></select></div>
+                <div class="reader-voice-row"><label>Bahasa</label><select id="editLangTag"><option value="ms">Melayu</option><option value="id">Indonesia</option><option value="en">English</option></select></div>
+                <div style="display:flex; gap:8px; justify-content:center; margin-top:15px;">
+                    <button class="btn btn-secondary" onclick="moveParagraph('up')">⬆️ Naik</button>
+                    <button class="btn btn-secondary" onclick="moveParagraph('down')">⬇️ Turun</button>
+                </div>
+                <button class="btn btn-danger" style="width:100%; margin-top:10px;" onclick="deleteParagraph()">🗑️ Hapus Paragraf</button>
+            </div>
+            <div class="audit-modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('editTagOverlay')">Batal</button>
+                <button class="btn btn-primary" onclick="saveTagToSheet()">Simpan Tag</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Add Paragraph -->
+    <div id="addParagraphOverlay" class="audit-modal-overlay">
+        <div class="audit-modal" style="max-width: 500px;">
+            <div class="audit-modal-header">
+                <div class="audit-modal-title">➕ Tambah Paragraf Baru</div>
+                <button class="audit-modal-close" onclick="closeModal('addParagraphOverlay')">✕</button>
+            </div>
+            <div class="audit-modal-body">
+                <div class="reader-voice-row"><label>Book ID</label><input type="text" id="addBookId"></div>
+                <div class="reader-voice-row"><label>Judul</label><input type="text" id="addBookTitle"></div>
+                <div class="reader-voice-row"><label>Chapter</label><input type="number" id="addChapterNum"></div>
+                <div class="reader-voice-row"><label>Judul Bab</label><input type="text" id="addChapterTitle"></div>
+                <div class="reader-voice-row"><label>Peran</label><select id="addWhoTag"><option value="NARRATOR">Narator</option><option value="AKTOR">Aktor</option></select></div>
+                <div class="reader-voice-row"><label>Gender</label><select id="addGender"><option value="FEMALE">Wanita</option><option value="MALE">Pria</option><option value="CHILD">Anak-anak</option></select></div>
+                <div class="reader-voice-row"><label>Bahasa</label><select id="addLangTag"><option value="ms">Melayu</option><option value="id">Indonesia</option><option value="en">English</option></select></div>
+                <textarea id="addText" rows="5" placeholder="Teks cerita..."></textarea>
+            </div>
+            <div class="audit-modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('addParagraphOverlay')">Batal</button>
+                <button class="btn btn-primary" onclick="saveNewParagraph()">💾 Simpan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast & Loading -->
+    <div id="toast">✅ Berhasil</div>
+    <div id="loadingOverlay"><div class="spinner"></div></div>
+    
+    <!-- Custom Confirm -->
+    <div id="customConfirmOverlay">
+        <div class="confirm-box">
+            <div id="confirmTitle" class="confirm-title">Peringatan</div>
+            <div id="confirmMessage" class="confirm-message">Apakah Anda yakin?</div>
+            <div class="confirm-btn-group">
+                <button id="confirmBtnYes" class="btn btn-primary">Ya</button>
+                <button id="confirmBtnCancel" class="btn btn-secondary">Batal</button>
+            </div>
         </div>
     </div>
 
