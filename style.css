@@ -96,3 +96,18 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
     .reader-tts-controls { flex-direction: column; gap: 8px; }
     .reader-tts-speed input[type=range] { width: 100%; }
 }
+
+.reader-topbar select {
+    flex: 1;
+    padding: 8px;
+    background: var(--bg-input);
+    color: var(--text-main);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    outline: none;
+    font-family: inherit;
+    font-size: 13px;
+}
+.reader-topbar select:focus {
+    border-color: var(--primary);
+}
