@@ -1,0 +1,9 @@
+body { font-family: sans-serif; background: #0e0e10; color: #e0e0e0; margin: 0; padding: 0; }
+.view { display: none; padding: 20px; }
+.view.active { display: block; }
+.login-card { max-width: 300px; margin: 100px auto; background: #1a1a1f; padding: 20px; border-radius: 10px; text-align: center; }
+input, button { width: 100%; padding: 10px; margin: 8px 0; border-radius: 5px; border: none; box-sizing: border-box; }
+button { background: #1a73e8; color: white; cursor: pointer; font-weight: bold; }
+#ttsBar { position: fixed; bottom: 0; left: 0; right: 0; background: #16161a; padding: 10px; display: flex; gap: 10px; align-items: center; }
+.reader-card { background: #1e1e24; padding: 15px; margin-bottom: 10px; border-radius: 8px; cursor: pointer; }
+.reader-card.active { border: 1px solid #1a73e8; background: rgba(26, 115, 232, 0.1); }

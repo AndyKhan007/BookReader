@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Reader API</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Service Worker untuk mengaktifkan SharedArrayBuffer di GitHub Pages -->
+    <script src="coi-serviceworker.js"></script>
+</head>
+<body>
+    <!-- UI Login -->
+    <div id="loginView" class="view active">
+        <div class="login-card">
+            <h2>📖 BOOK READER</h2>
+            <input type="text" id="username" placeholder="Username">
+            <input type="password" id="password" placeholder="Password">
+            <button onclick="doLogin()">Login</button>
+        </div>
+    </div>
+
+    <!-- UI Reader -->
+    <div id="readerView" class="view">
+        <header>
+            <button onclick="loadLibrary()">← Kembali</button>
+            <h3 id="headerTitle">Library</h3>
+            <button onclick="doLogout()">🚪</button>
+        </header>
+        
+        <main id="contentArea">
+            <!-- Konten dinamis dimuat di sini -->
+        </main>
+
+        <div id="ttsBar">
+            <button id="playBtn" onclick="togglePlay()">▶ Play</button>
+            <input type="range" id="speedSlider" min="0.5" max="2" step="0.1" value="1">
+            <input type="range" id="pitchSlider" min="0.5" max="2" step="0.1" value="1">
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
