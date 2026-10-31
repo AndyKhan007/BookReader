@@ -1,5 +1,5 @@
 // =================================================================================
-// app.js — Logika Utama Frontend (v3)
+// app.js — Logika Utama Frontend
 // =================================================================================
 
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw9OuINRFF7myho9hwc66cCP2Z5xINDoSVEI123PKsQH817YjQslAW7yv1WmQ5RWg0q/exec"; 
@@ -44,7 +44,7 @@ ttsWorker.onmessage = function (e) {
         console.error("❌ Error TTS:", e.data.error);
         if (playBtn) {
             playBtn.innerText = "❌ Gagal";
-            playBtn.disabled = false; // Biarkan diklik agar user bisa coba lagi
+            playBtn.disabled = false;
         }
         isPlaying = false;
     }
