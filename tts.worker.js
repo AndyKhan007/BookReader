@@ -1,28 +1,43 @@
 // =================================================================================
-// tts.worker.js — Download Manager & WASM Loader
+// tts.worker.js — Download Manager & WASM Loader (v2 - Fixed Init)
 // =================================================================================
 
-const DATA_FILE_URL = "https://huggingface.co/spaces/grbandy02/grbandy02space/resolve/main/sherpa-onnx-wasm-main-tts.data"; // ⚠️ MASUKKAN URL HUGGING FACE DARI LANGKAH SEBELUMNYA
+const DATA_FILE_URL = "https://huggingface.co/spaces/grbandy02/grbandy02space/resolve/main/sherpa-onnx-wasm-main-tts.data"; // ⚠️ PASTIKAN URL INI BENAR
 const CACHE_NAME = 'tts-model-cache-v1';
 
 let ttsInstance = null;
-let isReady = false;
 let blobDataUrl = null;
+let configData = null;
 
+// 1. Definisikan Module SEBELUM importScripts
 var Module = {
     locateFile: function(path) {
-        if (path.endsWith('.data')) {
-            return blobDataUrl; // Gunakan URL Blob lokal setelah diunduh
-        }
+        if (path.endsWith('.data')) return blobDataUrl;
         return path;
     },
     onRuntimeInitialized: function() {
         console.log("✅ [Worker] WASM Runtime Siap!");
-        checkReady();
     }
 };
 
-// Fungsi mengunduh dengan Progress
+// 2. Muat script Sherpa-onnx
+importScripts('./sherpa-onnx-wasm-main-tts.js');
+
+// 3. Fungsi menunggu WASM API siap
+function waitForWasm() {
+    return new Promise(resolve => {
+        const check = () => {
+            if (typeof Module.createOfflineTts === 'function') {
+                resolve();
+            } else {
+                setTimeout(check, 100); // Cek setiap 100ms
+            }
+        };
+        check();
+    });
+}
+
+// 4. Fungsi download .data
 async function downloadDataFile() {
     try {
         const cache = await caches.open(CACHE_NAME);
@@ -32,12 +47,11 @@ async function downloadDataFile() {
             console.log("⚡ [Worker] Menggunakan file .data dari Cache lokal.");
             const blob = await response.blob();
             blobDataUrl = URL.createObjectURL(blob);
-            return; // Selesai, lanjut ke load WASM
+            return;
         }
 
-        console.log("⬇️ [Worker] Mengunduh file .data baru (371 MB)...");
+        console.log("⬇️ [Worker] Mengunduh file .data baru...");
         response = await fetch(DATA_FILE_URL);
-        
         if (!response.ok) throw new Error("Gagal terhubung ke server model.");
         
         const contentLength = response.headers.get('content-length');
@@ -45,8 +59,6 @@ async function downloadDataFile() {
         
         const total = parseInt(contentLength, 10);
         let loaded = 0;
-        
-        // Baca dalam bentuk potongan (chunks)
         const reader = response.body.getReader();
         const chunks = [];
 
@@ -55,43 +67,31 @@ async function downloadDataFile() {
             if (done) break;
             chunks.push(value);
             loaded += value.length;
-            
-            // Kirim progress ke app.js
             self.postMessage({ type: 'progress', loaded: loaded, total: total });
         }
 
-        // Gabungkan dan simpan ke Cache
         const blob = new Blob(chunks, { type: 'application/octet-stream' });
-        const cacheResponse = new Response(blob, {
-            headers: { 'Content-Length': total, 'Content-Type': 'application/octet-stream' }
-        });
-        await cache.put(DATA_FILE_URL, cacheResponse);
-        
+        await cache.put(DATA_FILE_URL, new Response(blob));
         blobDataUrl = URL.createObjectURL(blob);
         console.log("✅ [Worker] Unduhan selesai dan disimpan di Cache.");
 
     } catch (err) {
-        console.error("❌ [Worker] Gagal mengunduh file .data:", err);
-        self.postMessage({ type: 'error', error: 'Gagal mengunduh model: ' + err.message });
+        console.error("❌ [Worker] Gagal mengunduh:", err);
+        self.postMessage({ type: 'error', error: 'Gagal mengunduh: ' + err.message });
     }
 }
 
-let configData = null;
-
-function checkReady() {
-    if (configData && typeof Module.createOfflineTts === 'function' && !ttsInstance) {
-        initTTS();
-    }
-}
-
+// 5. Inisialisasi Model
 async function initTTS() {
     try {
         console.log("⚙️ [Worker] Menginisialisasi Model TTS...");
+        // Beri tahu app.js bahwa unduhan selesai dan sedang memuat model
+        self.postMessage({ type: 'progress', loaded: 100, total: 100, phase: 'init' }); 
+
         const response = await fetch('./tts_config.json');
         const config = await response.json();
         
         ttsInstance = Module.createOfflineTts(config);
-        isReady = true;
         
         self.postMessage({ type: 'ready' });
         console.log("✅ [Worker] TTS Model Siap Digunakan!");
@@ -105,18 +105,18 @@ self.onmessage = async function (e) {
     if (e.data.type === 'init') {
         configData = e.data;
         
-        // 1. Unduh file .data terlebih dahulu (dengan progress bar)
+        // Langkah 1: Unduh file (Jika belum ada di cache)
         await downloadDataFile();
         
-        // 2. Muat script utama Sherpa-onnx setelah data siap
-        importScripts('./sherpa-onnx-wasm-main-tts.js');
+        // Langkah 2: Tunggu WASM (Module.createOfflineTts) siap
+        await waitForWasm();
         
-        // 3. Panggil checkReady (jika WASM sudah siap duluan)
-        checkReady();
+        // Langkah 3: Inisialisasi Model TTS
+        await initTTS();
     } 
     else if (e.data.type === 'generate') {
-        if (!isReady || !ttsInstance) {
-            self.postMessage({ type: 'error', error: 'TTS belum siap, mohon tunggu.' });
+        if (!ttsInstance) {
+            self.postMessage({ type: 'error', error: 'TTS belum siap' });
             return;
         }
         

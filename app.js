@@ -1,8 +1,7 @@
 // =================================================================================
-// app.js — Logika Utama Frontend (Dengan Progress Bar Unduhan)
+// app.js — Logika Utama Frontend (v3)
 // =================================================================================
 
-// ⚠️ GANTI DENGAN URL WEB APP APPS SCRIPT ANDA
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw9OuINRFF7myho9hwc66cCP2Z5xINDoSVEI123PKsQH817YjQslAW7yv1WmQ5RWg0q/exec"; 
 
 let AUTH_TOKEN = localStorage.getItem("reader_token") || "";
@@ -17,17 +16,19 @@ let audioCtx = null;
 let currentSource = null;
 let CURRENT_EDIT_SEQ = 0;
 
-// ══ INISIALISASI WORKER TTS ══
 const ttsWorker = new Worker('tts.worker.js'); 
 const playBtn = document.getElementById('playBtn');
 if (playBtn) playBtn.innerText = "⏳ Menyiapkan...";
 
 ttsWorker.onmessage = function (e) {
     if (e.data.type === 'progress') {
-        // Tampilkan persentase di tombol Play
-        const percent = Math.round((e.data.loaded / e.data.total) * 100);
-        if (playBtn) playBtn.innerText = `⏳ Unduh Model: ${percent}%`;
-        console.log(`[Download] ${percent}% (${(e.data.loaded/1024/1024).toFixed(1)} MB / ${(e.data.total/1024/1024).toFixed(1)} MB)`);
+        if (e.data.phase === 'init') {
+            if (playBtn) playBtn.innerText = "⚙️ Memuat Model...";
+            console.log("[Worker] Menginisialisasi Model...");
+        } else {
+            const percent = Math.round((e.data.loaded / e.data.total) * 100);
+            if (playBtn) playBtn.innerText = `⏳ Unduh Model: ${percent}%`;
+        }
     } 
     else if (e.data.type === 'ready') {
         console.log("✅ Mesin TTS Siap!");
@@ -41,16 +42,18 @@ ttsWorker.onmessage = function (e) {
     } 
     else if (e.data.type === 'error') {
         console.error("❌ Error TTS:", e.data.error);
-        if (playBtn) playBtn.innerText = "❌ Gagal";
+        if (playBtn) {
+            playBtn.innerText = "❌ Gagal";
+            playBtn.disabled = false; // Biarkan diklik agar user bisa coba lagi
+        }
         isPlaying = false;
     }
 };
 
-// Kirim perintah inisialisasi (Worker akan mengunduh file dulu sebelum init)
 const MODEL_BASE_URL = './models/vits-piper-id_ID-news_tts-medium-fp16/';
 ttsWorker.postMessage({ type: 'init', modelBaseUrl: MODEL_BASE_URL });
 
-// ══ UTILITY ══
+// ══ UTILITY & UI ══
 function showToast(msg) {
     const el = document.getElementById('toast');
     if (!el) return;
