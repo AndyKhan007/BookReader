@@ -1,5 +1,5 @@
 // =================================================================================
-// app.js — Logika Utama Frontend (Fetch API & Pemutar Audio)
+// app.js — Logika Utama Frontend (Dengan Progress Bar Unduhan)
 // =================================================================================
 
 // ⚠️ GANTI DENGAN URL WEB APP APPS SCRIPT ANDA
@@ -19,33 +19,36 @@ let CURRENT_EDIT_SEQ = 0;
 
 // ══ INISIALISASI WORKER TTS ══
 const ttsWorker = new Worker('tts.worker.js'); 
-
 const playBtn = document.getElementById('playBtn');
-if (playBtn) playBtn.innerText = "⏳ Loading Model...";
+if (playBtn) playBtn.innerText = "⏳ Menyiapkan...";
 
 ttsWorker.onmessage = function (e) {
-    if (e.data.type === 'ready') {
+    if (e.data.type === 'progress') {
+        // Tampilkan persentase di tombol Play
+        const percent = Math.round((e.data.loaded / e.data.total) * 100);
+        if (playBtn) playBtn.innerText = `⏳ Unduh Model: ${percent}%`;
+        console.log(`[Download] ${percent}% (${(e.data.loaded/1024/1024).toFixed(1)} MB / ${(e.data.total/1024/1024).toFixed(1)} MB)`);
+    } 
+    else if (e.data.type === 'ready') {
         console.log("✅ Mesin TTS Siap!");
         if (playBtn) {
             playBtn.disabled = false;
             playBtn.innerText = "▶ Play";
         }
-    } else if (e.data.type === 'result') {
+    } 
+    else if (e.data.type === 'result') {
         playAudioBuffer(e.data.audio, e.data.sampleRate);
-    } else if (e.data.type === 'error') {
+    } 
+    else if (e.data.type === 'error') {
         console.error("❌ Error TTS:", e.data.error);
-        if (playBtn) playBtn.innerText = "❌ Error";
+        if (playBtn) playBtn.innerText = "❌ Gagal";
         isPlaying = false;
     }
 };
 
-// Path Model
+// Kirim perintah inisialisasi (Worker akan mengunduh file dulu sebelum init)
 const MODEL_BASE_URL = './models/vits-piper-id_ID-news_tts-medium-fp16/';
 ttsWorker.postMessage({ type: 'init', modelBaseUrl: MODEL_BASE_URL });
-
-if (window.crossOriginIsolated === false) {
-    console.warn("⚠️ Cross-Origin-Isolated FALSE. Pastikan coi-serviceworker.js berjalan.");
-}
 
 // ══ UTILITY ══
 function showToast(msg) {
