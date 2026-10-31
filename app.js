@@ -1,5 +1,5 @@
 // =================================================================================
-// app.js — Logika Utama Frontend dengan Revolab Edge
+// app.js — Logika Frontend (Pre-fetching & Text Normalization)
 // =================================================================================
 
 const GAS_API_URL = "https://script.google.com/macros/s/AKfycbw9OuINRFF7myho9hwc66cCP2Z5xINDoSVEI123PKsQH817YjQslAW7yv1WmQ5RWg0q/exec"; 
@@ -16,8 +16,25 @@ let audioCtx = null;
 let currentSource = null;
 let CURRENT_EDIT_SEQ = 0;
 
+// Cache untuk menyimpan audio yang sudah disintesis
+let TTS_CACHE = {}; 
+let isFetching = false;
+
 const ttsWorker = new Worker('tts.worker.js', { type: 'module' }); 
 const playBtn = document.getElementById('playBtn');
+
+// ── FUNGSI NORMALISASI TEKS ──
+function cleanTextForTTS(text) {
+    let t = text;
+    // Perbaiki pelafalan huruf tunggal
+    t = t.replace(/\bJ\b/g, "Jei");
+    t = t.replace(/\bK\b/g, "Kei");
+    t = t.replace(/\bY\b/g, "Wai");
+    t = t.replace(/\bW\b/g, "Dabel Yu");
+    // Hapus karakter yang tidak perlu
+    t = t.replace(/["'()]/g, "");
+    return t;
+}
 
 ttsWorker.onmessage = function (e) {
     if (e.data.type === 'ready') {
@@ -28,7 +45,15 @@ ttsWorker.onmessage = function (e) {
         }
     } 
     else if (e.data.type === 'result') {
-        playAudioBuffer(e.data.samples, e.data.sampleRate);
+        // Simpan audio ke Cache
+        TTS_CACHE[e.data.id] = { samples: e.data.samples, sampleRate: e.data.sampleRate };
+        
+        // Jika audio ini adalah yang sedang ditunggu (kalimat saat ini), langsung putar
+        if (isFetching && e.data.id === CURRENT_IDX) {
+            isFetching = false;
+            playAudioBuffer(e.data.samples, e.data.sampleRate);
+            prefetchNext(); // Sambil memutar, siapkan kalimat selanjutnya
+        }
     } 
     else if (e.data.type === 'error') {
         console.error("❌ Error TTS:", e.data.error);
@@ -40,7 +65,7 @@ ttsWorker.onmessage = function (e) {
     }
 };
 
-// ══ UTILITY ══
+// ── UTILITY ──
 function showToast(msg) {
     const el = document.getElementById('toast');
     if (!el) return;
@@ -58,23 +83,20 @@ function showConfirm(title, msg, cb) {
 }
 function updateSpeedLabel() { document.getElementById('speedLabel').textContent = parseFloat(document.getElementById('speedSlider').value).toFixed(1) + '×'; }
 
-// ══ API CALL ══
 async function apiCall(action, payload = {}) {
     payload.action = action; payload.token = AUTH_TOKEN;
     const res = await fetch(GAS_API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
     return await res.json();
 }
 
-// ══ AUTH & UI ══
+// ── AUTH & DATA LOADING ──
 async function doLogin() {
     const u = document.getElementById("username").value;
     const p = document.getElementById("password").value;
     const btn = document.getElementById("loginBtn");
-    
     btn.innerText = "⏳..."; btn.disabled = true;
     const res = await apiCall("login", { username: u, password: p });
     btn.innerText = "🔐 MASUK"; btn.disabled = false;
-    
     if (res.ok) {
         AUTH_TOKEN = res.token;
         localStorage.setItem("reader_token", AUTH_TOKEN);
@@ -87,27 +109,18 @@ async function doLogin() {
         err.textContent = "Username atau password salah."; err.classList.add("show");
     }
 }
+function doLogout() { localStorage.removeItem("reader_token"); location.reload(); }
 
-function doLogout() {
-    localStorage.removeItem("reader_token");
-    location.reload();
-}
-
-// ══ DATA LOADING ══
 async function loadLibrary() {
     if (isPlaying) stopTTS();
     document.getElementById("headerTitle").innerText = "📖 Library";
     document.getElementById("contentArea").innerHTML = '<div style="text-align:center;">Memuat buku...</div>';
     document.getElementById("ttsBar").style.display = "none";
-    
     const res = await apiCall("getBooks");
     if (!res.ok) return showToast("Gagal load buku: " + res.error);
-    
     let html = "";
     res.data.forEach(b => {
-        html += `<div class="reader-card" onclick="openBook('${b.book_id}', '${b.book_title}')">
-                    <h3>${b.book_title}</h3>
-                 </div>`;
+        html += `<div class="reader-card" onclick="openBook('${b.book_id}', '${b.book_title}')"><h3>${b.book_title}</h3></div>`;
     });
     document.getElementById("contentArea").innerHTML = html;
 }
@@ -116,16 +129,12 @@ async function openBook(bookId, title) {
     CURRENT_BOOK = bookId;
     document.getElementById("headerTitle").innerText = title;
     document.getElementById("contentArea").innerHTML = '<div style="text-align:center;">Memuat bab...</div>';
-    
     const res = await apiCall("getChapters", { bookId: bookId });
     if (!res.ok) return showToast("Gagal load bab: " + res.error);
-    
     CHAPTER_LIST = res.data;
     let html = "";
     res.data.forEach(c => {
-        html += `<div class="reader-card" onclick="openChapter(${c.chapter})">
-                    <h3>Bab ${c.chapter} - ${c.chapter_title}</h3>
-                 </div>`;
+        html += `<div class="reader-card" onclick="openChapter(${c.chapter})"><h3>Bab ${c.chapter} - ${c.chapter_title}</h3></div>`;
     });
     document.getElementById("contentArea").innerHTML = html;
 }
@@ -135,22 +144,19 @@ async function openChapter(chapter) {
     document.getElementById("headerTitle").innerText = `Bab ${chapter}`;
     document.getElementById("contentArea").innerHTML = '<div style="text-align:center;">Memuat cerita...</div>';
     document.getElementById("ttsBar").style.display = "flex";
-    
     if (isPlaying) stopTTS();
-    PLAY_QUEUE = []; CURRENT_IDX = 0; CURRENT_SELECTED_SEQ = -1;
+    
+    PLAY_QUEUE = []; CURRENT_IDX = 0; CURRENT_SELECTED_SEQ = -1; TTS_CACHE = {}; // Reset cache
     
     const res = await apiCall("getContent", { bookId: CURRENT_BOOK, chapter: chapter });
     if (!res.ok) return showToast("Gagal load cerita: " + res.error);
     
     let html = "";
     let chunkIdx = 0;
-    
     res.data.forEach(row => {
         const sentences = row.text.split(/(?<=[.!?…])\s+/);
         const canEdit = res.user && res.user.update ? `<button class="reader-edit-btn" onclick="openEditTagModal(event, ${row.seq})">⚙️</button>` : '';
-        
         html += `<div class="reader-card" data-seq="${row.seq}" onclick="selectCard(${row.seq}, ${chunkIdx})">${canEdit}<div class="reader-paragraph">`;
-        
         sentences.forEach(s => {
             html += `<span class="reader-sentence" data-idx="${chunkIdx}">${s} </span>`;
             PLAY_QUEUE.push({ text: s, seq: row.seq, idx: chunkIdx });
@@ -158,22 +164,17 @@ async function openChapter(chapter) {
         });
         html += `</div></div>`;
     });
-    
     document.getElementById("contentArea").innerHTML = html;
 }
 
-// ══ INTERAKSI KARTU ══
+// ── INTERAKSI KARTU ──
 function selectCard(seq, startIdx) {
     CURRENT_SELECTED_SEQ = seq;
     document.querySelectorAll('.reader-card').forEach(c => c.classList.remove('selected'));
     const card = document.querySelector(`.reader-card[data-seq="${seq}"]`);
     if(card) card.classList.add('selected');
-    
     CURRENT_IDX = startIdx;
-    if (isPlaying) {
-        stopTTS();
-        togglePlay();
-    }
+    if (isPlaying) { stopTTS(); togglePlay(); }
 }
 
 function navigateParagraph(dir) {
@@ -183,7 +184,6 @@ function navigateParagraph(dir) {
     let pos = uniqueSeqs.indexOf(currentSeq);
     let newPos = dir === 'prev' ? Math.max(0, pos - 1) : Math.min(uniqueSeqs.length - 1, pos + 1);
     let targetSeq = uniqueSeqs[newPos];
-    
     if (targetSeq !== currentSeq || CURRENT_SELECTED_SEQ === -1) {
         let startIdx = PLAY_QUEUE.findIndex(p => p.seq === targetSeq);
         selectCard(targetSeq, startIdx);
@@ -191,7 +191,7 @@ function navigateParagraph(dir) {
     }
 }
 
-// ══ AUDIO LOGIC ══
+// ── AUDIO LOGIC & PRE-FETCHING ──
 function togglePlay() {
     if (playBtn.disabled) return;
     if (isPlaying) {
@@ -212,6 +212,7 @@ function stopTTS() {
     if (currentSource) { currentSource.stop(); currentSource = null; }
     document.querySelectorAll('.reader-sentence').forEach(el => el.classList.remove('reading-active'));
     CURRENT_IDX = 0;
+    isFetching = false;
 }
 
 function speakNext() {
@@ -221,14 +222,34 @@ function speakNext() {
         return;
     }
     const chunk = PLAY_QUEUE[CURRENT_IDX];
-    const speed = parseFloat(document.getElementById("speedSlider").value);
-    const voice = document.getElementById("voiceSelector").value;
-
+    
+    // Highlight
     document.querySelectorAll('.reader-sentence').forEach(el => el.classList.remove('reading-active'));
     const span = document.querySelector(`.reader-sentence[data-idx="${chunk.idx}"]`);
     if (span) { span.classList.add('reading-active'); span.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
     
-    ttsWorker.postMessage({ type: 'generate', text: chunk.text, voice: voice, speed: speed });
+    // Cek apakah audio sudah ada di Cache
+    if (TTS_CACHE[CURRENT_IDX]) {
+        playAudioBuffer(TTS_CACHE[CURRENT_IDX].samples, TTS_CACHE[CURRENT_IDX].sampleRate);
+        prefetchNext(); // Siapkan audio berikutnya di latar belakang
+    } else {
+        // Jika belum ada, minta Worker membuatnya
+        isFetching = true;
+        const speed = parseFloat(document.getElementById("speedSlider").value);
+        const voice = document.getElementById("voiceSelector").value;
+        ttsWorker.postMessage({ type: 'generate', id: CURRENT_IDX, text: cleanTextForTTS(chunk.text), voice: voice, speed: speed });
+    }
+}
+
+// Fungsi untuk meminta Worker membuat audio kalimat selanjutnya secara diam-diam
+function prefetchNext() {
+    const nextIdx = CURRENT_IDX + 1;
+    if (nextIdx < PLAY_QUEUE.length && !TTS_CACHE[nextIdx]) {
+        const nextChunk = PLAY_QUEUE[nextIdx];
+        const speed = parseFloat(document.getElementById("speedSlider").value);
+        const voice = document.getElementById("voiceSelector").value;
+        ttsWorker.postMessage({ type: 'generate', id: nextIdx, text: cleanTextForTTS(nextChunk.text), voice: voice, speed: speed });
+    }
 }
 
 function playAudioBuffer(float32Data, sampleRate) {
@@ -247,15 +268,14 @@ function playAudioBuffer(float32Data, sampleRate) {
     currentSource.start();
 }
 
-// ══ ADMIN MODALS ══
+// ── ADMIN MODALS ──
 function openEditTagModal(e, seq) {
     e.stopPropagation();
     CURRENT_EDIT_SEQ = seq;
     const chunk = PLAY_QUEUE.find(p => p.seq === seq);
     if (!chunk) return;
-    
     document.getElementById('editWhoTag').value = 'NARRATOR';
-    document.getElementById('editGender').value = 'FEMALE'; // Default UI
+    document.getElementById('editGender').value = 'FEMALE';
     document.getElementById('editLangTag').value = 'ms';
     document.getElementById('editTagOverlay').classList.add('active');
 }
@@ -310,7 +330,6 @@ async function saveNewParagraph() {
         text: document.getElementById('addText').value
     };
     if (!data.text || !data.book_id) return showToast("Teks dan ID wajib diisi.");
-    
     showLoading(true);
     const res = await apiCall("createStory", { data });
     showLoading(false);
@@ -318,7 +337,6 @@ async function saveNewParagraph() {
     else showToast("❌ Gagal: " + res.error);
 }
 
-// ══ INIT & GLOBAL BINDINGS ══
 window.onload = () => {
     if (AUTH_TOKEN) {
         apiCall("getSession").then(res => {
@@ -327,14 +345,12 @@ window.onload = () => {
                 document.getElementById("readerView").classList.add("active");
                 document.getElementById("addBtn").style.display = res.user.create ? "flex" : "none";
                 loadLibrary();
-            } else {
-                localStorage.removeItem("reader_token");
-            }
+            } else { localStorage.removeItem("reader_token"); }
         });
     }
 };
 
-// Memastikan semua fungsi dapat diakses oleh HTML (onclick)
+// Bind ke window
 window.doLogin = doLogin;
 window.doLogout = doLogout;
 window.loadLibrary = loadLibrary;
