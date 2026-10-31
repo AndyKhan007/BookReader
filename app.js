@@ -318,7 +318,7 @@ async function saveNewParagraph() {
     else showToast("❌ Gagal: " + res.error);
 }
 
-// ══ INIT ══
+// ══ INIT & GLOBAL BINDINGS ══
 window.onload = () => {
     if (AUTH_TOKEN) {
         apiCall("getSession").then(res => {
@@ -333,3 +333,22 @@ window.onload = () => {
         });
     }
 };
+
+// Memastikan semua fungsi dapat diakses oleh HTML (onclick)
+window.doLogin = doLogin;
+window.doLogout = doLogout;
+window.loadLibrary = loadLibrary;
+window.openBook = openBook;
+window.openChapter = openChapter;
+window.selectCard = selectCard;
+window.navigateParagraph = navigateParagraph;
+window.togglePlay = togglePlay;
+window.stopTTS = stopTTS;
+window.openEditTagModal = openEditTagModal;
+window.saveTagToSheet = saveTagToSheet;
+window.deleteParagraph = deleteParagraph;
+window.moveParagraph = moveParagraph;
+window.openAddParagraphModal = openAddParagraphModal;
+window.saveNewParagraph = saveNewParagraph;
+window.closeModal = closeModal;
+window.updateSpeedLabel = updateSpeedLabel;
