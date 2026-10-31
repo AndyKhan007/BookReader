@@ -18,12 +18,10 @@ let currentSource = null;
 let CURRENT_EDIT_SEQ = 0;
 
 // ══ INISIALISASI WORKER TTS ══
-// PERBAIKAN: Hapus { type: 'module' } karena Emscripten butuh Classic Worker
 const ttsWorker = new Worker('tts.worker.js'); 
 
-// Ubah teks tombol play menjadi loading saat pertama kali dimuat
 const playBtn = document.getElementById('playBtn');
-if (playBtn) playBtn.innerText = "⏳ Loading...";
+if (playBtn) playBtn.innerText = "⏳ Loading Model...";
 
 ttsWorker.onmessage = function (e) {
     if (e.data.type === 'ready') {
@@ -43,16 +41,13 @@ ttsWorker.onmessage = function (e) {
 
 // Path Model
 const MODEL_BASE_URL = './models/vits-piper-id_ID-news_tts-medium-fp16/';
-
-// Kirim perintah inisialisasi ke Worker
 ttsWorker.postMessage({ type: 'init', modelBaseUrl: MODEL_BASE_URL });
 
-// Cek Service Worker (Cross Origin Isolated)
 if (window.crossOriginIsolated === false) {
-    console.warn("⚠️ Cross-Origin-Isolated FALSE. SharedArrayBuffer mungkin tidak aktif.");
+    console.warn("⚠️ Cross-Origin-Isolated FALSE. Pastikan coi-serviceworker.js berjalan.");
 }
 
-// ══ UTILITY & FUNGSI LAINNYA (Sama seperti sebelumnya) ══
+// ══ UTILITY ══
 function showToast(msg) {
     const el = document.getElementById('toast');
     if (!el) return;
