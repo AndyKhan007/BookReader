@@ -1,5 +1,5 @@
 // =================================================================================
-// tts.worker.js — Mengunduh Data Dulu, Baru Menjalankan WASM
+// tts.worker.js — Memuat API Wrapper dan Konfigurasi Objek yang Benar
 // =================================================================================
 
 const DATA_FILE_URL = "https://huggingface.co/spaces/grbandy02/grbandy02space/resolve/main/sherpa-onnx-wasm-main-tts.data"; // ⚠️ GANTI DENGAN URL ANDA
@@ -7,7 +7,9 @@ const CACHE_NAME = 'tts-model-cache-v1';
 
 let ttsInstance = null;
 let blobDataUrl = null;
+let scriptLoaded = false;
 
+// 1. Definisikan Module
 var Module = {
     locateFile: function(path) {
         if (path.endsWith('.wasm')) return './sherpa-onnx-wasm-main-tts.wasm';
@@ -16,12 +18,12 @@ var Module = {
     },
     onRuntimeInitialized: function() {
         console.log("✅ [Worker] WASM Runtime Siap! Memulai inisialisasi model...");
-        // Beri tahu UI bahwa kita masuk fase loading model (fake progress)
         self.postMessage({ type: 'progress', phase: 'init' }); 
         initTTS();
     }
 };
 
+// 2. Fungsi Download File .data (Sama seperti sebelumnya)
 async function downloadDataFile() {
     try {
         const cache = await caches.open(CACHE_NAME);
@@ -62,24 +64,42 @@ async function downloadDataFile() {
     }
 }
 
+// 3. Inisialisasi Model TTS dengan Konfigurasi Objek
 async function initTTS() {
     try {
-        const response = await fetch('./tts_config.json');
-        const config = await response.json();
-        
-        let tts = null;
-        // Cek berbagai kemungkinan API yang di-expose oleh Emscripten Sherpa-onnx
-        if (typeof createOfflineTts === 'function') {
-            tts = createOfflineTts(config);
-        } else if (typeof OfflineTts === 'function') {
-            tts = new OfflineTts(config);
-        } else if (typeof Module.createOfflineTts === 'function') {
-            tts = Module.createOfflineTts(config);
-        } else {
-            throw new Error("API createOfflineTts / OfflineTts tidak ditemukan di WASM.");
-        }
+        // Konfigurasi lengkap sesuai dengan referensi Sherpa-onnx WASM
+        const config = {
+            offlineTtsModelConfig: {
+                offlineTtsVitsModelConfig: {
+                    model: './id_ID-news_tts-medium.onnx',
+                    lexicon: '',
+                    tokens: './tokens.txt',
+                    dataDir: './espeak-ng-data',
+                    noiseScale: 0.667,
+                    noiseScaleW: 0.8,
+                    lengthScale: 1.0,
+                },
+                offlineTtsMatchaModelConfig: {
+                    acousticModel: '', vocoder: '', lexicon: '', tokens: '', dataDir: '', noiseScale: 0.667, lengthScale: 1.0,
+                },
+                offlineTtsKokoroModelConfig: {
+                    model: '', voices: '', tokens: '', dataDir: '', lengthScale: 1.0, lexicon: '', lang: '',
+                },
+                offlineTtsKittenModelConfig: {
+                    model: '', voices: '', tokens: '', dataDir: '', lengthScale: 1.0,
+                },
+                numThreads: 1,
+                debug: 1,
+                provider: 'cpu',
+            },
+            ruleFsts: '',
+            ruleFars: '',
+            maxNumSentences: 1,
+        };
 
-        ttsInstance = tts;
+        // Panggil API dengan (Module, config)
+        ttsInstance = createOfflineTts(Module, config);
+        
         self.postMessage({ type: 'ready' });
         console.log("✅ [Worker] TTS Model Siap Digunakan!");
     } catch (err) {
@@ -88,12 +108,20 @@ async function initTTS() {
     }
 }
 
+// 4. Alur Utama Worker
 self.onmessage = async function (e) {
     if (e.data.type === 'init') {
         await downloadDataFile();
-        console.log("📦 [Worker] Memuat script WASM...");
-        importScripts('./sherpa-onnx-wasm-main-tts.js');
-        // Inisialisasi model akan otomatis dipanggil oleh Module.onRuntimeInitialized
+        
+        if (!scriptLoaded) {
+            console.log("📦 [Worker] Memuat script WASM & API TTS...");
+            // WAJIB memuat DUA file: main dan tts.js
+            importScripts(
+                './sherpa-onnx-wasm-main-tts.js',
+                './sherpa-onnx-tts.js' 
+            );
+            scriptLoaded = true;
+        }
     } 
     else if (e.data.type === 'generate') {
         if (!ttsInstance) return self.postMessage({ type: 'error', error: 'TTS belum siap' });
@@ -104,7 +132,12 @@ self.onmessage = async function (e) {
                 sid: 0,
                 speed: e.data.speed || 1.0
             });
-            self.postMessage({ type: 'result', audio: audio.samples, sampleRate: audio.sampleRate });
+            
+            // Kirim buffer dengan transferable objects untuk performa (zero-copy)
+            self.postMessage(
+                { type: 'result', samples: audio.samples, sampleRate: audio.sampleRate },
+                [audio.samples.buffer]
+            );
         } catch (err) {
             self.postMessage({ type: 'error', error: err.message });
         }

@@ -1,7 +1,0 @@
-{
-  "vits": {
-    "model": "id_ID-news_tts-medium.onnx",
-    "tokens": "tokens.txt",
-    "dataDir": "espeak-ng-data"
-  }
-}
