@@ -1,5 +1,5 @@
 // =================================================================================
-// tts.worker.js — Download Manager & WASM Loader (v2 - Fixed Init)
+// tts.worker.js — Mengunduh Data Dulu, Baru Menjalankan WASM
 // =================================================================================
 
 const DATA_FILE_URL = "https://huggingface.co/spaces/grbandy02/grbandy02space/resolve/main/sherpa-onnx-wasm-main-tts.data"; // ⚠️ PASTIKAN URL INI BENAR
@@ -8,11 +8,18 @@ const CACHE_NAME = 'tts-model-cache-v1';
 let ttsInstance = null;
 let blobDataUrl = null;
 let configData = null;
+let scriptLoaded = false;
 
-// 1. Definisikan Module SEBELUM importScripts
+// 1. Definisikan Module
 var Module = {
     locateFile: function(path) {
-        if (path.endsWith('.data')) return blobDataUrl;
+        if (path.endsWith('.wasm')) {
+            return './sherpa-onnx-wasm-main-tts.wasm';
+        }
+        if (path.endsWith('.data')) {
+            if (!blobDataUrl) console.error("CRITICAL: Data belum diunduh, tapi WASM memintanya!");
+            return blobDataUrl; // Akan berisi URL blob lokal yang valid
+        }
         return path;
     },
     onRuntimeInitialized: function() {
@@ -20,24 +27,7 @@ var Module = {
     }
 };
 
-// 2. Muat script Sherpa-onnx
-importScripts('./sherpa-onnx-wasm-main-tts.js');
-
-// 3. Fungsi menunggu WASM API siap
-function waitForWasm() {
-    return new Promise(resolve => {
-        const check = () => {
-            if (typeof Module.createOfflineTts === 'function') {
-                resolve();
-            } else {
-                setTimeout(check, 100); // Cek setiap 100ms
-            }
-        };
-        check();
-    });
-}
-
-// 4. Fungsi download .data
+// 2. Fungsi mengunduh .data
 async function downloadDataFile() {
     try {
         const cache = await caches.open(CACHE_NAME);
@@ -81,13 +71,24 @@ async function downloadDataFile() {
     }
 }
 
-// 5. Inisialisasi Model
+// 3. Fungsi menunggu WASM API siap
+function waitForWasm() {
+    return new Promise(resolve => {
+        const check = () => {
+            if (typeof Module.createOfflineTts === 'function') {
+                resolve();
+            } else {
+                setTimeout(check, 100);
+            }
+        };
+        check();
+    });
+}
+
+// 4. Inisialisasi Model
 async function initTTS() {
     try {
-        console.log("⚙️ [Worker] Menginisialisasi Model TTS...");
-        // Beri tahu app.js bahwa unduhan selesai dan sedang memuat model
-        self.postMessage({ type: 'progress', loaded: 100, total: 100, phase: 'init' }); 
-
+        self.postMessage({ type: 'progress', loaded: 100, total: 100, phase: 'init' });
         const response = await fetch('./tts_config.json');
         const config = await response.json();
         
@@ -101,17 +102,24 @@ async function initTTS() {
     }
 }
 
+// 5. Alur Utama Worker
 self.onmessage = async function (e) {
     if (e.data.type === 'init') {
         configData = e.data;
         
-        // Langkah 1: Unduh file (Jika belum ada di cache)
+        // LANGKAH 1: Unduh file .data terlebih dahulu
         await downloadDataFile();
         
-        // Langkah 2: Tunggu WASM (Module.createOfflineTts) siap
+        // LANGKAH 2: Muat script WASM SETELAH blobDataUrl siap
+        if (!scriptLoaded) {
+            importScripts('./sherpa-onnx-wasm-main-tts.js');
+            scriptLoaded = true;
+        }
+        
+        // LANGKAH 3: Tunggu API siap
         await waitForWasm();
         
-        // Langkah 3: Inisialisasi Model TTS
+        // LANGKAH 4: Muat model
         await initTTS();
     } 
     else if (e.data.type === 'generate') {
