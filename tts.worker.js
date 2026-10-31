@@ -23,7 +23,7 @@ var Module = {
     }
 };
 
-// 2. Fungsi Download File .data (Sama seperti sebelumnya)
+// 2. Fungsi Download File .data
 async function downloadDataFile() {
     try {
         const cache = await caches.open(CACHE_NAME);
@@ -67,11 +67,13 @@ async function downloadDataFile() {
 // 3. Inisialisasi Model TTS dengan Konfigurasi Objek
 async function initTTS() {
     try {
+        console.log("⚙️ [Worker] Membuat instance TTS...");
+        
         // Konfigurasi lengkap sesuai dengan referensi Sherpa-onnx WASM
         const config = {
             offlineTtsModelConfig: {
                 offlineTtsVitsModelConfig: {
-                    model: './id_ID-news_tts-medium.onnx',
+                    model: './id_ID-news_tts-medium.onnx', // Nama file harus persis seperti di dalam .data
                     lexicon: '',
                     tokens: './tokens.txt',
                     dataDir: './espeak-ng-data',
@@ -97,7 +99,7 @@ async function initTTS() {
             maxNumSentences: 1,
         };
 
-        // Panggil API dengan (Module, config)
+        // Panggil API global createOfflineTts
         ttsInstance = createOfflineTts(Module, config);
         
         self.postMessage({ type: 'ready' });
@@ -118,7 +120,7 @@ self.onmessage = async function (e) {
             // WAJIB memuat DUA file: main dan tts.js
             importScripts(
                 './sherpa-onnx-wasm-main-tts.js',
-                './sherpa-onnx-tts.js' 
+                './sherpa-onnx-tts.js' // File yang baru Anda unduh
             );
             scriptLoaded = true;
         }
