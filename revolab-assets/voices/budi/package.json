@@ -1,0 +1,7 @@
+{
+  "name": "@revolab/voice-budi",
+  "version": "0.1.0",
+  "description": "Revolab Edge voice: budi (Malay). Weights only — requires @revolab/revolab-edge.",
+  "license": "UNLICENSED",
+  "files": ["duration.qbin", "acoustic.qbin", "decoder.qbin", "manifest.json"]
+}
