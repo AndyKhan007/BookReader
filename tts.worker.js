@@ -1,5 +1,5 @@
 // =================================================================================
-// tts.worker.js — Revolab Edge TTS Engine (Explicit Local VoiceBase)
+// tts.worker.js — Revolab Edge TTS Engine (Fixed Local Voice Base)
 // =================================================================================
 
 import { RevolabEdge } from './revolab-assets/revovoice.js';
@@ -10,7 +10,6 @@ async function initRevolab() {
     try {
         console.log("⚙️ [Worker] Memuat Revolab Edge dari aset lokal...");
         
-        // 1. Tentukan base path untuk semua aset (wasm, g2p.json)
         ttsInstance = await RevolabEdge.load({ 
             assetBase: './revolab-assets/' 
         });
@@ -36,10 +35,9 @@ self.onmessage = async function (e) {
             const { text, voice, speed, id } = e.data;
             const lengthScale = speed ? (1 / speed) : 1.0;
 
-            // 2. Kunci Perbaikan: Definisikan voiceBase ke folder lokal
+            // PERBAIKAN: voiceBase harus mengarah ke folder revolab-assets/
             const voiceOptions = {
-                voice: voice,
-                voiceBase: './revolab-assets/voices/',
+                voiceBase: './revolab-assets/', 
                 quantized: false
             };
 
@@ -47,11 +45,9 @@ self.onmessage = async function (e) {
 
             const result = await ttsInstance.synthesize(text, { 
                 voice: voice,
-                voiceBase: './revolab-assets/voices/', // Sertakan juga di sini untuk memastikan
                 lengthScale: lengthScale
             });
 
-            // 3. Kirim data audio menggunakan Transferable Objects
             self.postMessage({
                 type: 'result',
                 id: id, 
