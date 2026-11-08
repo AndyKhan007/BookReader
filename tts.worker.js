@@ -1,8 +1,7 @@
 // =================================================================================
-// tts.worker.js — Revolab Edge TTS Engine (100% Local & Optimized)
+// tts.worker.js — Revolab Edge TTS Engine (Explicit Local VoiceBase)
 // =================================================================================
 
-// 1. Import mesin dari file lokal yang ada di folder revolab-assets
 import { RevolabEdge } from './revolab-assets/revovoice.js';
 
 let ttsInstance = null;
@@ -11,7 +10,7 @@ async function initRevolab() {
     try {
         console.log("⚙️ [Worker] Memuat Revolab Edge dari aset lokal...");
         
-        // 2. Arahkan assetBase ke folder lokal
+        // 1. Tentukan base path untuk semua aset (wasm, g2p.json)
         ttsInstance = await RevolabEdge.load({ 
             assetBase: './revolab-assets/' 
         });
@@ -35,19 +34,24 @@ self.onmessage = async function (e) {
         
         try {
             const { text, voice, speed, id } = e.data;
-            
-            // 3. Konversi speed slider (0.5 - 2.0) ke lengthScale Revolab
             const lengthScale = speed ? (1 / speed) : 1.0;
 
-            // 4. Muat suara dengan quantized: false (karena kita menggunakan file .bin, bukan .qbin)
-            await ttsInstance.loadVoice(voice, { quantized: false });
+            // 2. Kunci Perbaikan: Definisikan voiceBase ke folder lokal
+            const voiceOptions = {
+                voice: voice,
+                voiceBase: './revolab-assets/voices/',
+                quantized: false
+            };
+
+            await ttsInstance.loadVoice(voice, voiceOptions);
 
             const result = await ttsInstance.synthesize(text, { 
                 voice: voice,
+                voiceBase: './revolab-assets/voices/', // Sertakan juga di sini untuk memastikan
                 lengthScale: lengthScale
             });
 
-            // 5. TRANSFERABLE OBJECTS: Kirim data tanpa menyalin memori (instan)
+            // 3. Kirim data audio menggunakan Transferable Objects
             self.postMessage({
                 type: 'result',
                 id: id, 
